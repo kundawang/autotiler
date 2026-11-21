@@ -36,6 +36,12 @@ import (
 
 var (
 	errInvalidPackType = errors.New("invalid pack type")
+	// ErrNonDivisibleImage is returned when the source image dimensions are
+	// not evenly divisible by the declared number of packed tiles.
+	ErrNonDivisibleImage = errors.New("source image size is not divisible by the tile grid")
+	// ErrInvalidTileSize is returned when the derived tile size is too small
+	// or odd to be split into sub tiles.
+	ErrInvalidTileSize = errors.New("invalid tile size")
 )
 
 // anchorSet represents a set of anchor points for a tile set.
@@ -99,6 +105,23 @@ func (u *Unpacker) getAnchorPoint(x, y, tileSideSegments int) image.Point {
 }
 
 func (u *Unpacker) Init(tileSideSegments int) error {
+	if u.xTiles <= 0 || u.yTiles <= 0 {
+		return fmt.Errorf("%w: tile grid must be positive, got %dx%d", ErrInvalidTileSize, u.xTiles, u.yTiles)
+	}
+	dx := u.src.Bounds().Dx()
+	dy := u.src.Bounds().Dy()
+	if dx%u.xTiles != 0 || dy%u.yTiles != 0 {
+		return fmt.Errorf("%w: image %dx%d cannot be split into a %dx%d tile grid",
+			ErrNonDivisibleImage, dx, dy, u.xTiles, u.yTiles)
+	}
+	if u.tileWidth < 2 || u.tileHeight < 2 || u.tileWidth%2 != 0 || u.tileHeight%2 != 0 {
+		return fmt.Errorf("%w: tile size %dx%d must be even and at least 2x2 to be split into sub tiles",
+			ErrInvalidTileSize, u.tileWidth, u.tileHeight)
+	}
+	if u.tileWidth != u.tileHeight {
+		return fmt.Errorf("%w: tile size %dx%d must be square to support rotated placements",
+			ErrInvalidTileSize, u.tileWidth, u.tileHeight)
+	}
 	xCnt := u.xTiles * tileSideSegments
 	yCnt := u.yTiles * tileSideSegments
 	anchors := make([][]image.Point, xCnt)
@@ -173,6 +196,21 @@ func (u *Unpacker) paddedTileWidth() int {
 
 func (u *Unpacker) paddedTileHeight() int {
 	return u.tileHeight + u.padding*2
+}
+
+// TileWidth returns the width of a single source tile in pixels.
+func (u *Unpacker) TileWidth() int {
+	return u.tileWidth
+}
+
+// TileHeight returns the height of a single source tile in pixels.
+func (u *Unpacker) TileHeight() int {
+	return u.tileHeight
+}
+
+// Padding returns the padding in pixels added around every output tile.
+func (u *Unpacker) Padding() int {
+	return u.padding
 }
 
 //nolint:unused //debug function

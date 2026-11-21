@@ -41,9 +41,9 @@ const (
 //
 // Returns:
 //
-//	*image.NRGBA - a pointer to the generated image
+//	*Sheet - the generated tileset sheet with per-tile provenance
 //	error - an error if the pack type is invalid
-func (u *Unpacker) From6to16Terrain1() (*image.NRGBA, error) {
+func (u *Unpacker) From6to16Terrain1() (*Sheet, error) {
 	exp := export6to28TileSet()
 
 	// Create the quadMap for terrain 1 pattern
@@ -61,9 +61,9 @@ func (u *Unpacker) From6to16Terrain1() (*image.NRGBA, error) {
 //
 // Returns:
 //
-//	*image.NRGBA - a pointer to the generated image
+//	*Sheet - the generated tileset sheet with per-tile provenance
 //	error - an error if the pack type is invalid
-func (u *Unpacker) From6to16Terrain2() (*image.NRGBA, error) {
+func (u *Unpacker) From6to16Terrain2() (*Sheet, error) {
 	exp := export6to28TileSet()
 
 	// Create the quadMap for terrain 2 pattern
@@ -83,9 +83,9 @@ func (u *Unpacker) From6to16Terrain2() (*image.NRGBA, error) {
 //
 // Returns:
 //
-//	*image.NRGBA - a pointer to the generated image
+//	*Sheet - the generated tileset sheet with per-tile provenance
 //	error - an error if the pack type is invalid
-func (u *Unpacker) From6to28() (*image.NRGBA, error) {
+func (u *Unpacker) From6to28() (*Sheet, error) {
 	if u.xTiles*u.yTiles != sixPackType {
 		return nil, errInvalidPackType
 	}
@@ -97,7 +97,12 @@ func (u *Unpacker) From6to28() (*image.NRGBA, error) {
 	for idx := 0; idx < 28; idx++ {
 		u.drawFullTile(canvas, quadMap[idx], idx, 14)
 	}
-	return canvas, nil
+	return &Sheet{
+		Canvas:  canvas,
+		Columns: 14,
+		Rows:    2,
+		Tiles:   tileMetas(quadMap[:]),
+	}, nil
 }
 
 // From6to48Terrain1 generates a 12x4 tile set image from a 2x3 tile set using terrain 1 pattern.
@@ -109,9 +114,9 @@ func (u *Unpacker) From6to28() (*image.NRGBA, error) {
 //
 // Returns:
 //
-//	*image.NRGBA - a pointer to the generated image
+//	*Sheet - the generated tileset sheet with per-tile provenance
 //	error - an error if the pack type is invalid
-func (u *Unpacker) From6to48Terrain1() (*image.NRGBA, error) {
+func (u *Unpacker) From6to48Terrain1() (*Sheet, error) {
 	quadMap := export6to28TileSet()
 	quads := [16]quadTileData{
 		quadMap[1],
@@ -159,9 +164,9 @@ func (u *Unpacker) From6to48Terrain1() (*image.NRGBA, error) {
 //
 // Returns:
 //
-//	*image.NRGBA - a pointer to the generated image
+//	*Sheet - the generated tileset sheet with per-tile provenance
 //	error - an error if the pack type is invalid
-func (u *Unpacker) From6to48Terrain2() (*image.NRGBA, error) {
+func (u *Unpacker) From6to48Terrain2() (*Sheet, error) {
 	quadMap := export6to28TileSet()
 	offset := 14 // terrain 2 starts from 14th index, so we need to offset it
 	quads := [16]quadTileData{
@@ -212,9 +217,9 @@ func (u *Unpacker) From6to48Terrain2() (*image.NRGBA, error) {
 //
 // Returns:
 //
-//	*image.NRGBA - a pointer to the generated image
+//	*Sheet - the generated tileset sheet with per-tile provenance
 //	error - an error if the pack type is invalid
-func (u *Unpacker) from6to16Terrain(quadMap []quadTileData) (*image.NRGBA, error) {
+func (u *Unpacker) from6to16Terrain(quadMap []quadTileData) (*Sheet, error) {
 	if u.xTiles*u.yTiles != sixPackType {
 		return nil, errInvalidPackType
 	}
@@ -224,7 +229,12 @@ func (u *Unpacker) from6to16Terrain(quadMap []quadTileData) (*image.NRGBA, error
 	for idx := 0; idx < 16; idx++ {
 		u.drawFullTile(canvas, quadMap[idx], idx, 16)
 	}
-	return canvas, nil
+	return &Sheet{
+		Canvas:  canvas,
+		Columns: 16,
+		Rows:    1,
+		Tiles:   tileMetas(quadMap),
+	}, nil
 }
 
 // from6to48Terrain generates a 12x4 tile set from a 2x3 tile set.
@@ -236,118 +246,143 @@ func (u *Unpacker) from6to16Terrain(quadMap []quadTileData) (*image.NRGBA, error
 //
 // Returns:
 //
-//	*image.NRGBA - a pointer to a new image.NRGBA representing the 12x4 tile set built from the original 2x3 tile set
+//	*Sheet - the generated 12x4 tileset sheet built from the original 2x3 tile set, with per-tile provenance
 //	error - an error if any occurred during the process
-func (u *Unpacker) from6to48Terrain(quadMap [16]quadTileData) (*image.NRGBA, error) {
+func (u *Unpacker) from6to48Terrain(quadMap [16]quadTileData) (*Sheet, error) {
 	if u.xTiles*u.yTiles != sixPackType {
 		return nil, errInvalidPackType
 	}
 
 	// todo pass list of tile patterns so it would be reusing code for terrain 2
 	canvas := image.NewNRGBA(image.Rect(0, 0, u.paddedTileWidth()*12, u.paddedTileHeight()*4))
-	tileset := newTileSet(canvas, u.paddedTileWidth(), u.paddedTileHeight())
+	tileset := newTileSet(canvas, u.paddedTileWidth(), u.paddedTileHeight(), 12)
 
 	tilePattern := quadMap[0]
 	tile := image.NewNRGBA(image.Rect(0, 0, u.paddedTileWidth(), u.paddedTileHeight()))
 	// fully drawn
 	u.drawFullSingleTile(tile, tilePattern)
-	tileset.setTile(0, 2, tile)
-	tile = tileset.setTileWithRotationLeft(3, 3, tile)
-	tile = tileset.setTileWithRotationLeft(0, 0, tile)
-	tile = tileset.setTileWithRotationLeft(1, 3, tile)
+	tileset.setTile(0, 2, tile, tileMeta(tilePattern, 0))
+	tile = tileset.setTileWithRotationLeft(3, 3, tile, tileMeta(tilePattern, 90))
+	tile = tileset.setTileWithRotationLeft(0, 0, tile, tileMeta(tilePattern, 180))
+	tile = tileset.setTileWithRotationLeft(1, 3, tile, tileMeta(tilePattern, 270))
 
 	tilePattern = quadMap[1]
 	u.drawFullSingleTile(tile, tilePattern)
-	tileset.setTile(0, 1, tile)
-	tileset.setTileWithRotationLeft(2, 3, tile)
+	tileset.setTile(0, 1, tile, tileMeta(tilePattern, 0))
+	tileset.setTileWithRotationLeft(2, 3, tile, tileMeta(tilePattern, 90))
 
 	tilePattern = quadMap[2]
 	u.drawFullSingleTile(tile, tilePattern)
-	tileset.setTile(0, 3, tile)
+	tileset.setTile(0, 3, tile, tileMeta(tilePattern, 0))
 
 	tilePattern = quadMap[3]
 	u.drawFullSingleTile(tile, tilePattern)
-	tileset.setTile(1, 2, tile)
-	tile = tileset.setTileWithRotationLeft(3, 2, tile)
-	tile = tileset.setTileWithRotationLeft(3, 0, tile)
-	tile = tileset.setTileWithRotationLeft(1, 0, tile)
+	tileset.setTile(1, 2, tile, tileMeta(tilePattern, 0))
+	tile = tileset.setTileWithRotationLeft(3, 2, tile, tileMeta(tilePattern, 90))
+	tile = tileset.setTileWithRotationLeft(3, 0, tile, tileMeta(tilePattern, 180))
+	tile = tileset.setTileWithRotationLeft(1, 0, tile, tileMeta(tilePattern, 270))
 
 	tilePattern = quadMap[4]
 	u.drawFullSingleTile(tile, tilePattern)
-	tileset.setTile(1, 1, tile)
-	tile = tileset.setTileWithRotationLeft(2, 2, tile)
-	tile = tileset.setTileWithRotationLeft(3, 1, tile)
-	tile = tileset.setTileWithRotationLeft(2, 0, tile)
+	tileset.setTile(1, 1, tile, tileMeta(tilePattern, 0))
+	tile = tileset.setTileWithRotationLeft(2, 2, tile, tileMeta(tilePattern, 90))
+	tile = tileset.setTileWithRotationLeft(3, 1, tile, tileMeta(tilePattern, 180))
+	tile = tileset.setTileWithRotationLeft(2, 0, tile, tileMeta(tilePattern, 270))
 
 	tilePattern = quadMap[5]
 	u.drawFullSingleTile(tile, tilePattern)
-	tileset.setTile(2, 1, tile)
+	tileset.setTile(2, 1, tile, tileMeta(tilePattern, 0))
 
 	// 2nd 16
 	tilePattern = quadMap[6]
 	u.drawFullSingleTile(tile, tilePattern)
-	tileset.setTile(4, 0, tile)
-	tile = tileset.setTileWithRotationLeft(4, 3, tile)
-	tile = tileset.setTileWithRotationLeft(7, 3, tile)
-	tile = tileset.setTileWithRotationLeft(7, 0, tile)
+	tileset.setTile(4, 0, tile, tileMeta(tilePattern, 0))
+	tile = tileset.setTileWithRotationLeft(4, 3, tile, tileMeta(tilePattern, 90))
+	tile = tileset.setTileWithRotationLeft(7, 3, tile, tileMeta(tilePattern, 180))
+	tile = tileset.setTileWithRotationLeft(7, 0, tile, tileMeta(tilePattern, 270))
 
 	tilePattern = quadMap[7]
 	u.drawFullSingleTile(tile, tilePattern)
-	tileset.setTile(5, 1, tile)
-	tile = tileset.setTileWithRotationLeft(5, 2, tile)
-	tile = tileset.setTileWithRotationLeft(6, 2, tile)
-	tile = tileset.setTileWithRotationLeft(6, 1, tile)
+	tileset.setTile(5, 1, tile, tileMeta(tilePattern, 0))
+	tile = tileset.setTileWithRotationLeft(5, 2, tile, tileMeta(tilePattern, 90))
+	tile = tileset.setTileWithRotationLeft(6, 2, tile, tileMeta(tilePattern, 180))
+	tile = tileset.setTileWithRotationLeft(6, 1, tile, tileMeta(tilePattern, 270))
 
 	tilePattern = quadMap[8]
 	u.drawFullSingleTile(tile, tilePattern)
-	tileset.setTile(5, 0, tile)
-	tile = tileset.setTileWithRotationLeft(4, 2, tile)
-	tile = tileset.setTileWithRotationLeft(6, 3, tile)
-	tile = tileset.setTileWithRotationLeft(7, 1, tile)
+	tileset.setTile(5, 0, tile, tileMeta(tilePattern, 0))
+	tile = tileset.setTileWithRotationLeft(4, 2, tile, tileMeta(tilePattern, 90))
+	tile = tileset.setTileWithRotationLeft(6, 3, tile, tileMeta(tilePattern, 180))
+	tile = tileset.setTileWithRotationLeft(7, 1, tile, tileMeta(tilePattern, 270))
 
 	tilePattern = quadMap[9]
 	u.drawFullSingleTile(tile, tilePattern)
-	tileset.setTile(6, 0, tile)
-	tile = tileset.setTileWithRotationLeft(4, 1, tile)
-	tile = tileset.setTileWithRotationLeft(5, 3, tile)
-	tile = tileset.setTileWithRotationLeft(7, 2, tile)
+	tileset.setTile(6, 0, tile, tileMeta(tilePattern, 0))
+	tile = tileset.setTileWithRotationLeft(4, 1, tile, tileMeta(tilePattern, 90))
+	tile = tileset.setTileWithRotationLeft(5, 3, tile, tileMeta(tilePattern, 180))
+	tile = tileset.setTileWithRotationLeft(7, 2, tile, tileMeta(tilePattern, 270))
 
 	// 3rd 16
 	tilePattern = quadMap[10]
 	u.drawFullSingleTile(tile, tilePattern)
-	tileset.setTile(8, 3, tile)
-	tile = tileset.setTileWithRotationLeft(11, 3, tile)
-	tile = tileset.setTileWithRotationLeft(11, 0, tile)
-	tile = tileset.setTileWithRotationLeft(8, 0, tile)
+	tileset.setTile(8, 3, tile, tileMeta(tilePattern, 0))
+	tile = tileset.setTileWithRotationLeft(11, 3, tile, tileMeta(tilePattern, 90))
+	tile = tileset.setTileWithRotationLeft(11, 0, tile, tileMeta(tilePattern, 180))
+	tile = tileset.setTileWithRotationLeft(8, 0, tile, tileMeta(tilePattern, 270))
 
 	tilePattern = quadMap[11]
 	u.drawFullSingleTile(tile, tilePattern)
-	tileset.setTile(9, 0, tile)
-	tile = tileset.setTileWithRotationLeft(8, 2, tile)
-	tile = tileset.setTileWithRotationLeft(10, 3, tile)
-	tile = tileset.setTileWithRotationLeft(11, 2, tile)
+	tileset.setTile(9, 0, tile, tileMeta(tilePattern, 0))
+	tile = tileset.setTileWithRotationLeft(8, 2, tile, tileMeta(tilePattern, 90))
+	tile = tileset.setTileWithRotationLeft(10, 3, tile, tileMeta(tilePattern, 180))
+	tile = tileset.setTileWithRotationLeft(11, 2, tile, tileMeta(tilePattern, 270))
 
 	tilePattern = quadMap[12]
 	u.drawFullSingleTile(tile, tilePattern)
-	tileset.setTile(8, 1, tile)
-	tile = tileset.setTileWithRotationLeft(9, 3, tile)
-	tile = tileset.setTileWithRotationLeft(11, 1, tile)
-	tile = tileset.setTileWithRotationLeft(10, 0, tile)
+	tileset.setTile(8, 1, tile, tileMeta(tilePattern, 0))
+	tile = tileset.setTileWithRotationLeft(9, 3, tile, tileMeta(tilePattern, 90))
+	tile = tileset.setTileWithRotationLeft(11, 1, tile, tileMeta(tilePattern, 180))
+	tile = tileset.setTileWithRotationLeft(10, 0, tile, tileMeta(tilePattern, 270))
 
 	tilePattern = quadMap[13]
 	u.drawFullSingleTile(tile, tilePattern)
-	tileset.setTile(10, 1, tile)
+	tileset.setTile(10, 1, tile, tileMeta(tilePattern, 0))
 
 	tilePattern = quadMap[14]
 	u.drawFullSingleTile(tile, tilePattern)
-	tileset.setTile(9, 2, tile)
+	tileset.setTile(9, 2, tile, tileMeta(tilePattern, 0))
 
 	tilePattern = quadMap[15]
 	u.drawFullSingleTile(tile, tilePattern)
-	tileset.setTile(9, 1, tile)
-	_ = tileset.setTileWithRotationLeft(10, 2, tile)
+	tileset.setTile(9, 1, tile, tileMeta(tilePattern, 0))
+	_ = tileset.setTileWithRotationLeft(10, 2, tile, tileMeta(tilePattern, 90))
 
-	return tileset.getCanvas(), nil
+	return &Sheet{
+		Canvas:  tileset.getCanvas(),
+		Columns: 12,
+		Rows:    4,
+		Tiles:   tileset.getPlacements(48),
+	}, nil
+}
+
+// tileMeta builds the provenance record for a tile composed from the given
+// source sub tile pattern and placed with the given counter-clockwise rotation.
+func tileMeta(pattern quadTileData, rotation int) TileMeta {
+	meta := TileMeta{Rotation: rotation}
+	if pattern != nil {
+		meta.Quads = *pattern
+	}
+	return meta
+}
+
+// tileMetas converts a slice of source sub tile patterns into provenance
+// records for directly placed (unrotated) tiles.
+func tileMetas(patterns []quadTileData) []TileMeta {
+	metas := make([]TileMeta, len(patterns))
+	for i, pattern := range patterns {
+		metas[i] = tileMeta(pattern, 0)
+	}
+	return metas
 }
 
 // export6to28TileSet generates a quad from a 2x3 tile set sufficient to build 2 16 tiles tile sets

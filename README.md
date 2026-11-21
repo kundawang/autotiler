@@ -30,6 +30,26 @@ Autotiler unpacks tileset like this to formats more suitable for map generation 
 * enjoy
 * alternatively you can build an application using `make build` command to use it as a standalone application without Go
 
+## Tiled tileset export
+
+Next to every exported PNG the program writes a [Tiled JSON tileset](https://doc.mapeditor.org/en/stable/reference/json-map-format/#tileset)
+with the same base name (e.g. `./out/16x1_terrain1_output.local.json`). It records the image path, tile size,
+columns, tile count and per-tile IDs, so the sheet can be imported into Tiled without filling the grid by hand.
+Padding maps to Tiled's `margin` (padding) and `spacing` (2x padding) fields.
+
+Every tile also carries custom properties tracing it back to the source packed tileset:
+
+* `quads` - source sub tile coordinates in `x,y;x,y;x,y;x,y` order (top-left, top-right, bottom-left, bottom-right, before rotation)
+* `rotation` - counter-clockwise rotation in degrees applied when the tile was placed (0, 90, 180, 270)
+
+Related flags:
+
+* `-j 0` disables the Tiled JSON export (it is on by default)
+* `-f 1` allows overwriting existing JSON files; by default an existing file is reported as an error instead of being overwritten
+
+The output path must stay inside the current working directory, and the source image must be evenly divisible
+into a 2x3 grid of even-sized square tiles; violations are reported as explicit errors.
+
 ## Output Examples
 
 16x1 Terrain 1 to 2:
@@ -53,7 +73,7 @@ Autotiler unpacks tileset like this to formats more suitable for map generation 
 - [x] Unpack from 6 tiles to 28 tiles
 - [x] Unpack from 6 to 47 tiles
 - [ ] Unpack from 6 or 16 tiles to 256 tiles
-- [ ] Export to Tiled
+- [x] Export to Tiled
 - [ ] Export to Godot
 - [ ] More build options (Win, Mac)
 - [ ] Document, prettify code and make application more versatile

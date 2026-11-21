@@ -42,6 +42,8 @@ const (
 	paddingKey = "p"
 	exportKey  = "e"
 	outKey     = "o"
+	tiledKey   = "j"
+	forceKey   = "f"
 )
 
 const (
@@ -76,15 +78,20 @@ func main() {
 }
 
 func export(args map[string][]string, inputFile, outputFile string) error { // todo wrap errors
-	imgFile, err := os.Open(inputFile)
+	cleanOut, err := safeOutputPath(outputFile)
 	if err != nil {
 		return err
+	}
+
+	imgFile, err := os.Open(inputFile)
+	if err != nil {
+		return fmt.Errorf("cannot open source image %q: %w", inputFile, err)
 	}
 	defer imgFile.Close()
 
 	img, _, err := image.Decode(imgFile)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot decode source image %q: %w", inputFile, err)
 	}
 
 	padding := 0
@@ -92,6 +99,22 @@ func export(args map[string][]string, inputFile, outputFile string) error { // t
 		padding, err = strconv.Atoi(paddings[0])
 		if err != nil {
 			return err
+		}
+	}
+
+	tiledOn := true
+	if tiled, ok := args[tiledKey]; ok {
+		tiledOn, err = parseBool(tiled[0])
+		if err != nil {
+			return fmt.Errorf("invalid -%s value: %w", tiledKey, err)
+		}
+	}
+
+	force := false
+	if forces, ok := args[forceKey]; ok {
+		force, err = parseBool(forces[0])
+		if err != nil {
+			return fmt.Errorf("invalid -%s value: %w", forceKey, err)
 		}
 	}
 
@@ -112,25 +135,25 @@ func export(args map[string][]string, inputFile, outputFile string) error { // t
 		exportType := exportTypes[e]
 		switch exportType {
 		case export16:
-			err := produceTileset(unpacker.From6to16Terrain1, outputFile, "16x1_terrain1")
+			err := produceTileset(unpacker, unpacker.From6to16Terrain1, cleanOut, "16x1_terrain1", tiledOn, force)
 			if err != nil {
 				return err
 			}
-			err = produceTileset(unpacker.From6to16Terrain2, outputFile, "16x1_terrain2")
+			err = produceTileset(unpacker, unpacker.From6to16Terrain2, cleanOut, "16x1_terrain2", tiledOn, force)
 			if err != nil {
 				return err
 			}
 		case export28:
-			err := produceTileset(unpacker.From6to28, outputFile, "14x2")
+			err := produceTileset(unpacker, unpacker.From6to28, cleanOut, "14x2", tiledOn, force)
 			if err != nil {
 				return err
 			}
 		case export48:
-			err := produceTileset(unpacker.From6to48Terrain1, outputFile, "12x4_terrain1")
+			err := produceTileset(unpacker, unpacker.From6to48Terrain1, cleanOut, "12x4_terrain1", tiledOn, force)
 			if err != nil {
 				return err
 			}
-			err = produceTileset(unpacker.From6to48Terrain2, outputFile, "12x4_terrain2")
+			err = produceTileset(unpacker, unpacker.From6to48Terrain2, cleanOut, "12x4_terrain2", tiledOn, force)
 			if err != nil {
 				return err
 			}
@@ -143,7 +166,10 @@ func parseArgs() map[string][]string {
 	if len(os.Args) < 2 {
 		log.Print(
 			"Usage: autotiler -in <file_in> [-o <file_out>] [-p <padding>] [-e <export_type(16,28,48,all)>]\n" +
-				"       -e can be repeated\n")
+				"                 [-j <tiled_json(1,0)>] [-f <force_overwrite(1,0)>]\n" +
+				"       -e can be repeated\n" +
+				"       -j defaults to 1: a Tiled JSON tileset is written next to every PNG\n" +
+				"       -f defaults to 0: existing Tiled JSON files are not overwritten\n")
 		os.Exit(1)
 	}
 	res := make(map[string][]string)
@@ -171,8 +197,9 @@ func parseArgs() map[string][]string {
 	return res
 }
 
-func produceTileset(unpackFunction func() (*image.NRGBA, error), outputPath, exportType string) error {
-	canvas, err := unpackFunction()
+func produceTileset(unpacker *unpack.Unpacker, unpackFunction func() (*unpack.Sheet, error),
+	outputPath, exportType string, tiledOn, force bool) error {
+	sheet, err := unpackFunction()
 	if err != nil {
 		return err
 	}
@@ -189,11 +216,60 @@ func produceTileset(unpackFunction func() (*image.NRGBA, error), outputPath, exp
 			log.Println(err)
 		}
 	}(file)
-	err = png.Encode(file, canvas)
+	err = png.Encode(file, sheet.Canvas)
 	if err != nil {
 		return err
 	}
-	return nil
+	if !tiledOn {
+		return nil
+	}
+	return produceTiledJSON(unpacker, sheet, outputFile, exportType, force)
+}
+
+// produceTiledJSON writes a Tiled JSON tileset next to the exported PNG.
+// The JSON file shares the PNG's base name with a .json extension and
+// references the PNG by its path relative to the JSON location.
+func produceTiledJSON(unpacker *unpack.Unpacker, sheet *unpack.Sheet, pngPath, exportType string, force bool) error {
+	jsonPath := strings.TrimSuffix(pngPath, filepath.Ext(pngPath)) + ".json"
+	imageRef, err := filepath.Rel(filepath.Dir(jsonPath), pngPath)
+	if err != nil {
+		return fmt.Errorf("cannot resolve image path for %q: %w", jsonPath, err)
+	}
+	imageRef = filepath.ToSlash(imageRef)
+	name := strings.TrimSuffix(filepath.Base(pngPath), filepath.Ext(pngPath))
+	tileset := unpack.NewTiledTileset(name, imageRef, sheet,
+		unpacker.TileWidth(), unpacker.TileHeight(), unpacker.Padding())
+	return unpack.WriteTiledJSON(jsonPath, tileset, force)
+}
+
+// safeOutputPath cleans the given output path and rejects paths that would
+// escape the current working directory.
+func safeOutputPath(path string) (string, error) {
+	clean := filepath.Clean(path)
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(clean)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(cwd, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("output path %q escapes the working directory", path)
+	}
+	return clean, nil
+}
+
+// parseBool parses a boolean flag value: 1/0, true/false, on/off, yes/no.
+func parseBool(value string) (bool, error) {
+	switch strings.ToLower(value) {
+	case "1", "true", "on", "yes":
+		return true, nil
+	case "0", "false", "off", "no":
+		return false, nil
+	}
+	return false, fmt.Errorf("expected one of 1/0, true/false, on/off, yes/no, got %q", value)
 }
 
 //nolint:unused //debug function
